@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Container, Row, Col, Card, Button, Modal, Form, Table, InputGroup, FormControl, Spinner, Dropdown
+  Container, Row, Col, Card, Button, Modal, Form, Table, Spinner
 } from 'react-bootstrap';
 import {
   collection, addDoc, getDocs, doc, updateDoc, query, where, getDoc
@@ -16,7 +16,7 @@ import Paginacao from '../components/Paginacao';
 // Ícones para o cabeçalho e abas
 import { GraduationCap, Plus, Eye } from "lucide-react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faX, faCircleExclamation, faCheck, faNoteSticky, faComment } from '@fortawesome/free-solid-svg-icons';
+import { faX, faCircleExclamation, faCheck, faComment } from '@fortawesome/free-solid-svg-icons';
 
 interface Entrega {
   id: string;
@@ -230,13 +230,7 @@ export default function Tarefas() {
     handleClose();
     fetchData();
   };
-  const tarefasFiltradas = tarefas.filter(t =>
-    (!filtroTurma || t.turmaId === filtroTurma) &&
-    (!filtroMateria || t.materiaId === filtroMateria) &&
-    (busca === '' ||
-      materias.find(m => m.id === t.materiaId)?.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      t.descricao.toLowerCase().includes(busca.toLowerCase()))
-  );
+  
   const atualizarEntrega = async (alunoId: string, status: string) => {
     const tarefa = tarefas.find(t => t.descricao === busca && t.materiaId === filtroMateria);
     if (!tarefa) return;
@@ -272,18 +266,9 @@ export default function Tarefas() {
 
   };
 
-
-  const tarefasOrdenadas = [...tarefasFiltradas].sort((a, b) => new Date(b.dataEntrega).getTime() - new Date(a.dataEntrega).getTime());
-  const totalPaginas = Math.ceil(tarefasOrdenadas.length / tarefasPorPagina);
-  const tarefasPaginadas = tarefasOrdenadas.slice((paginaAtual - 1) * tarefasPorPagina, paginaAtual * tarefasPorPagina);
   const alunosFiltrados = filtroTurma
     ? alunos.filter(aluno => aluno.turmaId === filtroTurma)
     : [];
-
-
-  function handleExcluir(_id: string): void {
-    throw new Error('Function not implemented.');
-  }
 
   return (
     <AppLayout>
