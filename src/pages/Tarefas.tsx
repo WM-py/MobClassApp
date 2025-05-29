@@ -16,13 +16,17 @@ import Paginacao from '../components/Paginacao';
 // Ícones para o cabeçalho e abas
 import { GraduationCap, Plus, Eye } from "lucide-react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faX, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faX, faCircleExclamation, faCheck, faNoteSticky, faComment } from '@fortawesome/free-solid-svg-icons';
 
 interface Entrega {
+  id: string;
   alunoId: string;
   tarefaId: string;
   dataEntrega: string;
-  status: 'concluida' | 'pendente';
+  status: string;
+  dataConclusao?: string;
+  anexoUrl?: string;
+  observacoes?: string;
 }
 
 
@@ -86,11 +90,61 @@ export default function Tarefas() {
   const [activeTab, setActiveTab] = useState<'cadastro' | 'acompanhamento'>('acompanhamento');
   const [entregas, setEntregas] = useState<Entrega[]>([]);
 
+  const [observacaoAberta, setObservacaoAberta] = useState<{
+    alunoId: string | null;
+    texto: string;
+  }>({ alunoId: null, texto: "" });
+
 
   useEffect(() => {
     if (!userData) return;
     fetchData();
   }, [userData]);
+
+  // Observação handlers movidos para o escopo do componente
+  const abrirObservacao = (alunoId: string, textoAtual: string = "") => {
+    setObservacaoAberta({ alunoId, texto: textoAtual });
+  };
+  const fecharObservacao = () => {
+    setObservacaoAberta({ alunoId: null, texto: "" });
+  };
+  const salvarObservacao = async () => {
+    if (!observacaoAberta.alunoId || !busca || !filtroMateria) return;
+
+    const tarefa = tarefas.find(t => t.descricao === busca && t.materiaId === filtroMateria);
+    if (!tarefa) return;
+
+    const entregaExistente = entregas.find(e =>
+      e.alunoId === observacaoAberta.alunoId &&
+      e.tarefaId === tarefa.id
+    );
+
+    if (entregaExistente) {
+      const entregaRef = doc(db, 'entregas', entregaExistente.id);
+      await updateDoc(entregaRef, { observacoes: observacaoAberta.texto });
+
+      setEntregas(prev =>
+        prev.map(e =>
+          e.id === entregaExistente.id ? { ...e, observacoes: observacaoAberta.texto } : e
+        )
+      );
+    } else {
+      const novaEntrega = {
+        alunoId: observacaoAberta.alunoId,
+        tarefaId: tarefa.id,
+        status: '',
+        dataEntrega: new Date().toISOString(),
+        observacoes: observacaoAberta.texto
+      };
+
+      const docRef = await addDoc(collection(db, 'entregas'), novaEntrega);
+
+      setEntregas(prev => [...prev, { id: docRef.id, ...novaEntrega }]);
+    }
+
+    fecharObservacao();
+  };
+
 
   const fetchData = async () => {
     setLoading(true);
@@ -125,8 +179,10 @@ export default function Tarefas() {
     setVinculos(vincList);
 
     const entregasSnap = await getDocs(collection(db, 'entregas'));
-    setEntregas(entregasSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as Entrega) })));
-
+    setEntregas(entregasSnap.docs.map(doc => {
+      const { id: _id, ...data } = doc.data() as Entrega;
+      return { id: doc.id, ...data };
+    }));
 
     const materiaIds = [...new Set(vincList.map(v => v.materiaId))];
     const materiasSnap = await Promise.all(
@@ -181,6 +237,41 @@ export default function Tarefas() {
       materias.find(m => m.id === t.materiaId)?.nome.toLowerCase().includes(busca.toLowerCase()) ||
       t.descricao.toLowerCase().includes(busca.toLowerCase()))
   );
+  const atualizarEntrega = async (alunoId: string, status: string) => {
+    const tarefa = tarefas.find(t => t.descricao === busca && t.materiaId === filtroMateria);
+    if (!tarefa) return;
+
+    const entregaExistente = entregas.find(e => e.alunoId === alunoId && e.tarefaId === tarefa.id);
+
+    if (entregaExistente) {
+      const entregaRef = doc(db, 'entregas', entregaExistente.id);
+      await updateDoc(entregaRef, { status });
+
+      // Atualiza o estado local da entrega modificada
+      setEntregas(prev =>
+        prev.map(e =>
+          e.id === entregaExistente.id ? { ...e, status } : e
+        )
+      );
+    } else {
+      const novaEntrega = {
+        alunoId,
+        tarefaId: tarefa.id,
+        status,
+        dataEntrega: new Date().toISOString(),
+      };
+
+      const docRef = await addDoc(collection(db, 'entregas'), novaEntrega);
+
+      // Adiciona nova entrega ao estado local
+      setEntregas(prev => [
+        ...prev,
+        { id: docRef.id, ...novaEntrega }
+      ]);
+    }
+
+  };
+
 
   const tarefasOrdenadas = [...tarefasFiltradas].sort((a, b) => new Date(b.dataEntrega).getTime() - new Date(a.dataEntrega).getTime());
   const totalPaginas = Math.ceil(tarefasOrdenadas.length / tarefasPorPagina);
@@ -303,62 +394,130 @@ export default function Tarefas() {
                 ) : (
                   <Card className="shadow-sm">
                     <Card.Body>
-                      <Table responsive bordered hover>
-                        <thead className="table-light">
-                          <tr>
-                            <th>Status</th>
-                            <th>Aluno</th>
-                            <th style={{ whiteSpace: 'nowrap' }}>Data Conclusão</th>
-                            <th>Anexo</th>
-                            <th>Observações</th>
-                            <th>Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...alunosFiltrados]
-                            .sort((a, b) => a.nome.localeCompare(b.nome))
-                            .slice((paginaAtual - 1) * tarefasPorPagina, paginaAtual * tarefasPorPagina)
-                            .map(aluno => (
-                              <tr key={aluno.id}>
-                                <td className="text-center">
-                                  {(() => {
-                                    const entrega = entregas.find(e =>
-                                      e.alunoId === aluno.id &&
-                                      tarefas.some(t => t.descricao === busca && t.id === e.tarefaId)
-                                    );
-                                    if (entrega?.status === 'concluida') {
-                                      return <FontAwesomeIcon icon={faX} />;
-                                    } else {
-                                      return <FontAwesomeIcon icon={faTimes} />;
-                                    }
-                                  })()}
-                                </td>
-
-                                <td style={{ whiteSpace: 'nowrap', maxWidth: 336, overflowX: 'auto' }}>{aluno.nome}</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td className="d-flex flex-column gap-2" style={{ whiteSpace: 'nowrap' }}>
-
-                                  <div className="d-flex gap-2">
-                                    <Button variant="success" size="sm" onClick={() => alert(`Confirmado: ${aluno.nome}`)}>Confirmar</Button>
-                                    <Button variant="danger" size="sm" onClick={() => alert(`Não entregue: ${aluno.nome}`)}>Não Entregue</Button>
-                                  </div>
-                                </td>
-
+                      {filtroTurma && filtroMateria && busca ? (
+                        <>
+                          <Table responsive bordered hover>
+                            <thead className="table-light">
+                              <tr>
+                                <th>Status</th>
+                                <th>Aluno</th>
+                                <th style={{ whiteSpace: 'nowrap' }}>Data Conclusão</th>
+                                <th>Anexo</th>
+                                <th>Observações</th>
+                                <th>Ações</th>
                               </tr>
-                            ))}
-                        </tbody>
-                      </Table>
-
-                      <Paginacao
-                        paginaAtual={paginaAtual}
-                        totalPaginas={Math.ceil(alunosFiltrados.length / tarefasPorPagina)}
-                        aoMudarPagina={setPaginaAtual}
-                      />
+                            </thead>
+                            <tbody>
+                              {[...alunosFiltrados]
+                                .sort((a, b) => a.nome.localeCompare(b.nome))
+                                .slice((paginaAtual - 1) * tarefasPorPagina, paginaAtual * tarefasPorPagina)
+                                .map(aluno => {
+                                  const entrega = entregas.find(e =>
+                                    e.alunoId === aluno.id &&
+                                    e.tarefaId === tarefas.find(t => t.descricao === busca && t.materiaId === filtroMateria)?.id
+                                  );
+                                  return (
+                                    <tr key={aluno.id}>
+                                      <td className="text-center">
+                                        {(() => {
+                                          if (entrega?.status === 'concluida') {
+                                            return (
+                                              <FontAwesomeIcon
+                                                icon={faCheck}
+                                                style={{ color: "#2fae2d" }}
+                                              />
+                                            );
+                                          } else if (entrega?.status === 'pendente') {
+                                            return (
+                                              <FontAwesomeIcon
+                                                icon={faCircleExclamation}
+                                                style={{ color: "#FFD43B" }}
+                                              />
+                                            );
+                                          } else {
+                                            return <FontAwesomeIcon icon={faX} style={{ color: "#dc3545" }} />;
+                                          }
+                                        })()}
+                                      </td>
+                                      <td style={{ whiteSpace: 'nowrap', maxWidth: 300, overflowX: 'auto' }}>{aluno.nome}</td>
+                                      <td>{entrega?.dataConclusao ?? '-'}</td>
+                                      <td>
+                                        {entrega?.anexoUrl ? (
+                                          <a
+                                            href={entrega.anexoUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{ color: "#3b82f6" }}
+                                          >
+                                            Ver Anexo
+                                          </a>
+                                        ) : (
+                                          <span style={{ color: "rgb(33 37 41 / 75%)" }}>Sem anexo</span>
+                                        )}
+                                      </td>
+                                        <td className="text-center">
+                                          <FontAwesomeIcon
+                                            icon={faComment}
+                                            size="lg"
+                                            style={{
+                                              color: entrega?.observacoes && entrega.observacoes.trim() !== "" ? "#FFD43B" : "#212529",
+                                              cursor: "pointer"
+                                            }}
+                                            onClick={() => abrirObservacao(aluno.id, entrega?.observacoes ?? "")}
+                                          />
+                                        </td>
+                                      <td className="d-flex flex-column gap-2" style={{ whiteSpace: 'nowrap' }}>
+                                        <div className="d-flex gap-2">
+                                          <Button variant="success" size="sm" onClick={() => atualizarEntrega(aluno.id, 'concluida')}>Confirmar</Button>
+                                          <Button variant="danger" size="sm" onClick={() => atualizarEntrega(aluno.id, 'nao_entregue')}>Não Entregue</Button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </Table>
+                          <Paginacao
+                            paginaAtual={paginaAtual}
+                            totalPaginas={Math.ceil(alunosFiltrados.length / tarefasPorPagina)}
+                            aoMudarPagina={setPaginaAtual}
+                          />
+                        </>
+                      ) : (
+                        <div className="text-center text-muted py-5">
+                          <FontAwesomeIcon icon={faCircleExclamation} size="2x" className="mb-3" />
+                          <div>Selecione a turma, matéria e atividade para visualizar os alunos.</div>
+                        </div>
+                      )}
                     </Card.Body>
                   </Card>
                 )}
+                <Modal show={!!observacaoAberta.alunoId} onHide={fecharObservacao} centered>
+                  <Modal.Header closeButton>
+                    <Modal.Title>Observação</Modal.Title>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <Form>
+                      <Form.Group>
+                        <Form.Label>Observação</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={4}
+                          value={observacaoAberta.texto}
+                          onChange={e => setObservacaoAberta({ ...observacaoAberta, texto: e.target.value })}
+                        />
+                      </Form.Group>
+                    </Form>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button variant="secondary" onClick={fecharObservacao}>
+                      Cancelar
+                    </Button>
+                    <Button variant="primary" onClick={salvarObservacao}>
+                      Salvar
+                    </Button>
+                  </Modal.Footer>
+                </Modal>
 
                 <Modal show={showModal} onHide={handleClose} centered>
                   <Modal.Header closeButton>
