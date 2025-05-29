@@ -12,8 +12,25 @@ import AppLayout from '../components/AppLayout';
 import { useAuth } from '../contexts/AuthContext';
 import Paginacao from '../components/Paginacao';
 
+
 // Ícones para o cabeçalho e abas
 import { GraduationCap, Plus, Eye } from "lucide-react";
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faX, faTimes } from '@fortawesome/free-solid-svg-icons';
+
+interface Entrega {
+  alunoId: string;
+  tarefaId: string;
+  dataEntrega: string;
+  status: 'concluida' | 'pendente';
+}
+
+
+interface Aluno {
+  id: string;
+  nome: string;
+  turmaId: string;
+}
 
 interface Tarefa {
   id: string;
@@ -50,7 +67,10 @@ export default function Tarefas() {
 
   const [busca, setBusca] = useState('');
   const [filtroTurma, setFiltroTurma] = useState('');
+  const [filtroMateria, setFiltroMateria] = useState('');
   const [loading, setLoading] = useState(true);
+  const [alunos, setAlunos] = useState<Aluno[]>([]);
+
 
   const [showModal, setShowModal] = useState(false);
   const [materiaSelecionada, setMateriaSelecionada] = useState('');
@@ -64,6 +84,8 @@ export default function Tarefas() {
 
   // Estado para abas
   const [activeTab, setActiveTab] = useState<'cadastro' | 'acompanhamento'>('acompanhamento');
+  const [entregas, setEntregas] = useState<Entrega[]>([]);
+
 
   useEffect(() => {
     if (!userData) return;
@@ -102,6 +124,10 @@ export default function Tarefas() {
     const vincList = vincSnap.docs.map(d => d.data() as Vinculo);
     setVinculos(vincList);
 
+    const entregasSnap = await getDocs(collection(db, 'entregas'));
+    setEntregas(entregasSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as Entrega) })));
+
+
     const materiaIds = [...new Set(vincList.map(v => v.materiaId))];
     const materiasSnap = await Promise.all(
       materiaIds.map(async id => {
@@ -119,6 +145,12 @@ export default function Tarefas() {
     setTurmas(turmaDocs.map(d => ({ id: d.id, nome: d.data()?.nome || '-' })));
     setTarefas(tarefasFiltradas.map(d => ({ id: d.id, ...(d.data() as any) })));
     setLoading(false);
+    const alunosSnap = await getDocs(collection(db, 'alunos'));
+    setAlunos(alunosSnap.docs.map(doc => {
+      const data = doc.data() as Omit<Aluno, 'id'>;
+      return { ...data, id: doc.id };
+    }));
+
   };
 
   const handleClose = () => {
@@ -142,16 +174,21 @@ export default function Tarefas() {
     handleClose();
     fetchData();
   };
-
   const tarefasFiltradas = tarefas.filter(t =>
     (!filtroTurma || t.turmaId === filtroTurma) &&
-    (materias.find(m => m.id === t.materiaId)?.nome.toLowerCase().includes(busca.toLowerCase()) ||
+    (!filtroMateria || t.materiaId === filtroMateria) &&
+    (busca === '' ||
+      materias.find(m => m.id === t.materiaId)?.nome.toLowerCase().includes(busca.toLowerCase()) ||
       t.descricao.toLowerCase().includes(busca.toLowerCase()))
   );
 
   const tarefasOrdenadas = [...tarefasFiltradas].sort((a, b) => new Date(b.dataEntrega).getTime() - new Date(a.dataEntrega).getTime());
   const totalPaginas = Math.ceil(tarefasOrdenadas.length / tarefasPorPagina);
   const tarefasPaginadas = tarefasOrdenadas.slice((paginaAtual - 1) * tarefasPorPagina, paginaAtual * tarefasPorPagina);
+  const alunosFiltrados = filtroTurma
+    ? alunos.filter(aluno => aluno.turmaId === filtroTurma)
+    : [];
+
 
   function handleExcluir(_id: string): void {
     throw new Error('Function not implemented.');
@@ -160,275 +197,305 @@ export default function Tarefas() {
   return (
     <AppLayout>
       <Container className="my-4">
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-bottom border-gray-200">
-        <div className="container px-4">
-          <div className="d-flex align-items-center justify-content-between py-4">
-            <div className="d-flex align-items-center gap-3">
-              <div className="d-flex align-items-center justify-content-center rounded bg-primary" style={{ width: 48, height: 48 }}>
-                <GraduationCap size={24} color="#fff" />
-              </div>
-              <div>
-                <h1 className="fs-3 fw-bold text-primary mb-0">Gerenciamento de Tarefas</h1>
-                <p className="text-muted mb-0" style={{ fontSize: 14 }}>MobClassApp - Portal do Professor</p>
+        <div className="min-h-screen bg-gray-50">
+          {/* Header */}
+          <div className="bg-white border-bottom border-gray-200">
+            <div className="container px-4">
+              <div className="d-flex align-items-center justify-content-between py-4">
+                <div className="d-flex align-items-center gap-3">
+                  <div className="d-flex align-items-center justify-content-center rounded bg-primary" style={{ width: 48, height: 48 }}>
+                    <GraduationCap size={24} color="#fff" />
+                  </div>
+                  <div>
+                    <h1 className="fs-3 fw-bold text-dark mb-0">Gerenciamento de Tarefas</h1>
+                    <p className="text-muted mb-0" style={{ fontSize: 14 }}>MobClassApp - Portal do Professor</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Navigation Tabs */}
-      <div className="bg-white border-bottom border-gray-200">
-        <div className="container px-4">
-          <div className="d-flex gap-3 py-3">
-            <Button
-              variant={activeTab === 'cadastro' ? 'primary' : 'outline-primary'}
-              className="d-flex align-items-center gap-2"
-              onClick={() => setActiveTab('cadastro')}
-            >
-              <Plus size={18} />
-              <span>Cadastro de Atividade</span>
-            </Button>
-            <Button
-              variant={activeTab === 'acompanhamento' ? 'primary' : 'outline-primary'}
-              className="d-flex align-items-center gap-2"
-              onClick={() => setActiveTab('acompanhamento')}
-            >
-              <Eye size={18} />
-              <span>Acompanhamento</span>
-            </Button>
+          {/* Navigation Tabs */}
+          <div className="bg-white border-bottom border-gray-200">
+            <div className="container px-4">
+              <div className="d-flex gap-3 py-3">
+                <Button
+                  variant={activeTab === 'cadastro' ? 'primary' : 'outline-primary'}
+                  className="d-flex align-items-center gap-2"
+                  onClick={() => setActiveTab('cadastro')}
+                >
+                  <Plus size={18} />
+                  <span>Cadastro de Atividade</span>
+                </Button>
+                <Button
+                  variant={activeTab === 'acompanhamento' ? 'primary' : 'outline-primary'}
+                  className="d-flex align-items-center gap-2"
+                  onClick={() => setActiveTab('acompanhamento')}
+                >
+                  <Eye size={18} />
+                  <span>Acompanhamento</span>
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="container py-4">
-        {activeTab === 'acompanhamento' && (
-          <>
-            <>
-              <Row className="justify-content-between align-items-center mb-3">
-                <Col>
-                  <h3 className="text-primary">Acompanhamento de Atividades</h3>
-                </Col>
-              </Row>
+          {/* Main Content */}
+          <div className="container py-4">
+            {activeTab === 'acompanhamento' && (
+              <>
 
-              <Row className="mb-3">
-                <Col md={4}>
-                  <Form.Select value={filtroTurma} onChange={e => setFiltroTurma(e.target.value)}>
-                    <option value="">Filtrar por turma</option>
-                    {turmas.map(t => (
-                      <option key={t.id} value={t.id}>{t.nome}</option>
-                    ))}
-                  </Form.Select>
-                </Col>
-                <Col md={8}>
-                  <InputGroup>
-                    <FormControl
-                      placeholder="Buscar por matéria ou descrição"
+                <Row className="justify-content-between align-items-center mb-3">
+                  <Col>
+                    <h3 className="text-primary">Acompanhamento de Atividades</h3>
+                  </Col>
+                </Row>
+
+                <Row className="mb-3">
+                  <Col md={4}>
+                    <Form.Select value={filtroTurma} onChange={e => setFiltroTurma(e.target.value)}>
+                      <option value="">Todas as turmas</option>
+                      {[...turmas]
+                        .sort((a, b) => a.nome.localeCompare(b.nome))
+                        .map(t => (
+                          <option key={t.id} value={t.id}>{t.nome}</option>
+                        ))}
+                    </Form.Select>
+                  </Col>
+                  <Col md={4}>
+                    <Form.Select
+                      value={filtroMateria}
+                      onChange={e => {
+                        setFiltroMateria(e.target.value);
+                        setBusca(''); // Limpa busca por descrição ao trocar matéria
+                        setPaginaAtual(1); // Volta para a primeira página ao filtrar
+                      }}
+                    >
+                      <option value="">Todas as matérias</option>
+                      {materias.map(m => (
+                        <option key={m.id} value={m.id}>{m.nome}</option>
+                      ))}
+                    </Form.Select>
+                  </Col>
+                  <Col md={4}>
+                    <Form.Select
                       value={busca}
                       onChange={e => setBusca(e.target.value)}
-                    />
-                  </InputGroup>
-                </Col>
-              </Row>
-            </>
-            {loading ? (
-              <div className="d-flex justify-content-center align-items-center py-5">
-                <Spinner animation="border" />
-              </div>
-            ) : (
-              <Card className="shadow-sm">
-                <Card.Body>
-                  <Table responsive bordered hover>
-                    <thead className="table-light">
-                      <tr>
-                        <th>Matéria</th>
-                        <th>Descrição</th>
-                        <th>Turma</th>
-                        <th>Entrega</th>
-                        <th>Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tarefasPaginadas.map(t => (
-                        <tr key={t.id}>
-                          <td>{materias.find(m => m.id === t.materiaId)?.nome || '-'}</td>
-                          <td>{t.descricao}</td>
-                          <td>{turmas.find(x => x.id === t.turmaId)?.nome || '-'}</td>
-                          <td>{new Date(t.dataEntrega).toLocaleDateString('pt-BR')}</td>
-                          <td>
-                            <Dropdown align="end">
-                              <Dropdown.Toggle variant="light" size="sm">
-                                <i className="bi bi-three-dots-vertical"></i>
-                              </Dropdown.Toggle>
-                              <Dropdown.Menu>
-                                <Dropdown.Item onClick={() => {
-                                  setMateriaSelecionada(t.materiaId);
-                                  setDescricao(t.descricao);
-                                  setTurmaId(t.turmaId);
-                                  setDataEntrega(t.dataEntrega);
-                                  setEditandoId(t.id);
-                                  setShowModal(true);
-                                }}>
-                                  <i className="bi bi-pencil-square me-2"></i> Editar
-                                </Dropdown.Item>
-                                <Dropdown.Item onClick={() => handleExcluir(t.id)}>
-                                  <i className="bi bi-trash me-2"></i> Excluir
-                                </Dropdown.Item>
-                              </Dropdown.Menu>
-                            </Dropdown>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
+                      disabled={!filtroMateria}
+                    >
+                      <option value="">Selecione uma atividade</option>
+                      {[...new Set(
+                        tarefas
+                          .filter(t => !filtroMateria || t.materiaId === filtroMateria)
+                          .map(t => t.descricao)
+                      )]
+                        .sort()
+                        .map(desc => (
+                          <option key={desc} value={desc}>{desc}</option>
+                        ))}
+                    </Form.Select>
+                  </Col>
+                </Row>
 
-                  <Paginacao
-                    paginaAtual={paginaAtual}
-                    totalPaginas={totalPaginas}
-                    aoMudarPagina={setPaginaAtual}
-                  />
-                </Card.Body>
-              </Card>
+                {loading ? (
+                  <div className="d-flex justify-content-center align-items-center py-5">
+                    <Spinner animation="border" />
+                  </div>
+                ) : (
+                  <Card className="shadow-sm">
+                    <Card.Body>
+                      <Table responsive bordered hover>
+                        <thead className="table-light">
+                          <tr>
+                            <th>Status</th>
+                            <th>Aluno</th>
+                            <th style={{ whiteSpace: 'nowrap' }}>Data Conclusão</th>
+                            <th>Anexo</th>
+                            <th>Observações</th>
+                            <th>Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...alunosFiltrados]
+                            .sort((a, b) => a.nome.localeCompare(b.nome))
+                            .slice((paginaAtual - 1) * tarefasPorPagina, paginaAtual * tarefasPorPagina)
+                            .map(aluno => (
+                              <tr key={aluno.id}>
+                                <td className="text-center">
+                                  {(() => {
+                                    const entrega = entregas.find(e =>
+                                      e.alunoId === aluno.id &&
+                                      tarefas.some(t => t.descricao === busca && t.id === e.tarefaId)
+                                    );
+                                    if (entrega?.status === 'concluida') {
+                                      return <FontAwesomeIcon icon={faX} />;
+                                    } else {
+                                      return <FontAwesomeIcon icon={faTimes} />;
+                                    }
+                                  })()}
+                                </td>
+
+                                <td style={{ whiteSpace: 'nowrap', maxWidth: 336, overflowX: 'auto' }}>{aluno.nome}</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td className="d-flex flex-column gap-2" style={{ whiteSpace: 'nowrap' }}>
+
+                                  <div className="d-flex gap-2">
+                                    <Button variant="success" size="sm" onClick={() => alert(`Confirmado: ${aluno.nome}`)}>Confirmar</Button>
+                                    <Button variant="danger" size="sm" onClick={() => alert(`Não entregue: ${aluno.nome}`)}>Não Entregue</Button>
+                                  </div>
+                                </td>
+
+                              </tr>
+                            ))}
+                        </tbody>
+                      </Table>
+
+                      <Paginacao
+                        paginaAtual={paginaAtual}
+                        totalPaginas={Math.ceil(alunosFiltrados.length / tarefasPorPagina)}
+                        aoMudarPagina={setPaginaAtual}
+                      />
+                    </Card.Body>
+                  </Card>
+                )}
+
+                <Modal show={showModal} onHide={handleClose} centered>
+                  <Modal.Header closeButton>
+                    <Modal.Title>{editandoId ? 'Editar Tarefa' : 'Nova Tarefa'}</Modal.Title>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <Form>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Turma</Form.Label>
+                        <Form.Select value={turmaId} onChange={e => setTurmaId(e.target.value)}>
+                          <option value="">Selecione a turma</option>
+                          {turmas.map(t => (
+                            <option key={t.id} value={t.id}>{t.nome}</option>
+                          ))}
+                        </Form.Select>
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Matéria</Form.Label>
+                        <Form.Select
+                          value={materiaSelecionada}
+                          onChange={e => setMateriaSelecionada(e.target.value)}
+                          disabled={!turmaId}
+                        >
+                          <option value="">Selecione a matéria</option>
+                          {vinculos
+                            .filter(v => v.turmaId === turmaId)
+                            .map(v => {
+                              const materia = materias.find(m => m.id === v.materiaId);
+                              return materia ? (
+                                <option key={materia.id} value={materia.id}>{materia.nome}</option>
+                              ) : null;
+                            })}
+                        </Form.Select>
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Descrição</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={2}
+                          value={descricao}
+                          onChange={e => setDescricao(e.target.value)}
+                        />
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Data de Entrega</Form.Label>
+                        <Form.Control
+                          type="date"
+                          value={dataEntrega}
+                          onChange={e => setDataEntrega(e.target.value)}
+                        />
+                      </Form.Group>
+                    </Form>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
+                    <Button variant="primary" onClick={handleSalvar}>Salvar</Button>
+                  </Modal.Footer>
+                </Modal>
+              </>
             )}
 
-            <Modal show={showModal} onHide={handleClose} centered>
-              <Modal.Header closeButton>
-                <Modal.Title>{editandoId ? 'Editar Tarefa' : 'Nova Tarefa'}</Modal.Title>
-              </Modal.Header>
-              <Modal.Body>
-                <Form>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Turma</Form.Label>
-                    <Form.Select value={turmaId} onChange={e => setTurmaId(e.target.value)}>
-                      <option value="">Selecione a turma</option>
-                      {turmas.map(t => (
-                        <option key={t.id} value={t.id}>{t.nome}</option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Matéria</Form.Label>
-                    <Form.Select
-                      value={materiaSelecionada}
-                      onChange={e => setMateriaSelecionada(e.target.value)}
-                      disabled={!turmaId}
-                    >
-                      <option value="">Selecione a matéria</option>
-                      {vinculos
-                        .filter(v => v.turmaId === turmaId)
-                        .map(v => {
-                          const materia = materias.find(m => m.id === v.materiaId);
-                          return materia ? (
-                            <option key={materia.id} value={materia.id}>{materia.nome}</option>
-                          ) : null;
-                        })}
-                    </Form.Select>
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Descrição</Form.Label>
-                    <Form.Control
-                      as="textarea"
-                      rows={2}
-                      value={descricao}
-                      onChange={e => setDescricao(e.target.value)}
-                    />
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Data de Entrega</Form.Label>
-                    <Form.Control
-                      type="date"
-                      value={dataEntrega}
-                      onChange={e => setDataEntrega(e.target.value)}
-                    />
-                  </Form.Group>
-                </Form>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
-                <Button variant="primary" onClick={handleSalvar}>Salvar</Button>
-              </Modal.Footer>
-            </Modal>
-          </>
-        )}
-
-        {activeTab === 'cadastro' && (
-          <div className="d-flex flex-column align-items-center justify-content-center py-5">
-            <div className="d-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10 mb-3" style={{ width: 64, height: 64 }}>
-              <Plus size={32} color="#0d6efd" />
-            </div>
-            <h3 className="fw-semibold text-dark mb-2">
-              Formulário de Cadastro de Atividade
-            </h3>
-            <p className="text-muted mb-4" style={{ maxWidth: 400 }}>
-              Preencha o formulário para cadastrar uma nova atividade.
-            </p>
-            <Button variant="primary" onClick={() => setShowModal(true)}>
-              <Plus className="me-2" size={18} /> Nova Tarefa
-            </Button>
-            <Modal show={showModal} onHide={handleClose} centered>
-              <Modal.Header closeButton>
-                <Modal.Title>{editandoId ? 'Editar Tarefa' : 'Nova Tarefa'}</Modal.Title>
-              </Modal.Header>
-              <Modal.Body>
-                <Form>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Turma</Form.Label>
-                    <Form.Select value={turmaId} onChange={e => setTurmaId(e.target.value)}>
-                      <option value="">Selecione a turma</option>
-                      {turmas.map(t => (
-                        <option key={t.id} value={t.id}>{t.nome}</option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Matéria</Form.Label>
-                    <Form.Select
-                      value={materiaSelecionada}
-                      onChange={e => setMateriaSelecionada(e.target.value)}
-                      disabled={!turmaId}
-                    >
-                      <option value="">Selecione a matéria</option>
-                      {vinculos
-                        .filter(v => v.turmaId === turmaId)
-                        .map(v => {
-                          const materia = materias.find(m => m.id === v.materiaId);
-                          return materia ? (
-                            <option key={materia.id} value={materia.id}>{materia.nome}</option>
-                          ) : null;
-                        })}
-                    </Form.Select>
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Descrição</Form.Label>
-                    <Form.Control
-                      as="textarea"
-                      rows={2}
-                      value={descricao}
-                      onChange={e => setDescricao(e.target.value)}
-                    />
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Data de Entrega</Form.Label>
-                    <Form.Control
-                      type="date"
-                      value={dataEntrega}
-                      onChange={e => setDataEntrega(e.target.value)}
-                    />
-                  </Form.Group>
-                </Form>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
-                <Button variant="primary" onClick={handleSalvar}>Salvar</Button>
-              </Modal.Footer>
-            </Modal>
+            {activeTab === 'cadastro' && (
+              <div className="d-flex flex-column align-items-center justify-content-center py-5">
+                <div className="d-flex align-items-center justify-content-center rounded-circle bg-primary bg-opacity-10 mb-3" style={{ width: 64, height: 64 }}>
+                  <Plus size={32} color="#0d6efd" />
+                </div>
+                <h3 className="fw-semibold text-dark mb-2">
+                  Formulário de Cadastro de Atividade
+                </h3>
+                <p className="text-muted mb-4" style={{ maxWidth: 400 }}>
+                  Preencha o formulário para cadastrar uma nova atividade.
+                </p>
+                <Button variant="primary" onClick={() => setShowModal(true)}>
+                  <Plus className="me-2" size={18} /> Nova Tarefa
+                </Button>
+                <Modal show={showModal} onHide={handleClose} centered>
+                  <Modal.Header closeButton>
+                    <Modal.Title>{editandoId ? 'Editar Tarefa' : 'Nova Tarefa'}</Modal.Title>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <Form>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Turma</Form.Label>
+                        <Form.Select value={turmaId} onChange={e => setTurmaId(e.target.value)}>
+                          <option value="">Selecione a turma</option>
+                          {turmas.map(t => (
+                            <option key={t.id} value={t.id}>{t.nome}</option>
+                          ))}
+                        </Form.Select>
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Matéria</Form.Label>
+                        <Form.Select
+                          value={materiaSelecionada}
+                          onChange={e => setMateriaSelecionada(e.target.value)}
+                          disabled={!turmaId}
+                        >
+                          <option value="">Selecione a matéria</option>
+                          {vinculos
+                            .filter(v => v.turmaId === turmaId)
+                            .map(v => {
+                              const materia = materias.find(m => m.id === v.materiaId);
+                              return materia ? (
+                                <option key={materia.id} value={materia.id}>{materia.nome}</option>
+                              ) : null;
+                            })}
+                        </Form.Select>
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Descrição</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={2}
+                          value={descricao}
+                          onChange={e => setDescricao(e.target.value)}
+                        />
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label>Data de Entrega</Form.Label>
+                        <Form.Control
+                          type="date"
+                          value={dataEntrega}
+                          onChange={e => setDataEntrega(e.target.value)}
+                        />
+                      </Form.Group>
+                    </Form>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
+                    <Button variant="primary" onClick={handleSalvar}>Salvar</Button>
+                  </Modal.Footer>
+                </Modal>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </div>
-        </Container>
-      </AppLayout>
+        </div>
+      </Container>
+    </AppLayout>
   );
 }
